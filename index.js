@@ -1,13 +1,36 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const cron = require('node-cron');
+const fs = require('fs');
 
-const token = '8256297651:AAGenxqZT8jGooa1-Vf1MJqXUuvgbDkgUa8';
+const token = process.env.BOT_TOKEN || '8256297651:AAGenxqZT8jGooa1-Vf1MJqXUuvgbDkgUa8';
 const bot = new TelegramBot(token, { polling: true });
 
-let subscribers = [];
+const SUBSCRIBERS_FILE = './subscribers.json';
 
-// Функция получения курса доллара
+// Загрузка подписчиков из файла
+function loadSubscribers() {
+  try {
+    const data = fs.readFileSync(SUBSCRIBERS_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch (err) {
+    console.error('❌ Не удалось загрузить подписчиков:', err.message);
+    return [];
+  }
+}
+
+// Сохранение подписчиков в файл
+function saveSubscribers(subs) {
+  try {
+    fs.writeFileSync(SUBSCRIBERS_FILE, JSON.stringify(subs, null, 2));
+  } catch (err) {
+    console.error('❌ Не удалось сохранить подписчиков:', err.message);
+  }
+}
+
+let subscribers = loadSubscribers();
+
+// Получение курса доллара
 async function getDollarRate() {
   try {
     const response = await axios.get('https://open.er-api.com/v6/latest/USD');
@@ -18,36 +41,24 @@ async function getDollarRate() {
   }
 }
 
-// ✅ Тестовое сообщение при запуске
-(async () => {
-  const rate = await getDollarRate();
-  console.log('🚀 Бот запущен! Текущий курс USD/RUB:', rate);
-})();
-
-// Команда /start
+// /start — подписка
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
-
   if (!subscribers.includes(chatId)) {
     subscribers.push(chatId);
-    console.log('✅ Новый подписчик:', chatId);
+    saveSubscribers(subscribers);
+    console.log('✅ Новый подписчик сохранён:', chatId);
   }
 
-  bot.sendMessage(
-    chatId,
-    '👋 Привет! Я буду присылать курс доллара к рублю каждые 60 секунд для теста.\n' +
-    'Напиши /rate чтобы узнать курс прямо сейчас.\n' +
-    'Напиши /stop чтобы отписаться.'
-  );
+  bot.sendMessage(chatId, '👋 Подписка активирована. Я буду присылать курс доллара к рублю каждые 30 секунд для теста.\nНапиши /rate чтобы узнать курс сейчас.\nНапиши /stop чтобы отписаться.');
 
-  // Отправляем курс сразу при подписке
   const rate = await getDollarRate();
   if (rate) {
     bot.sendMessage(chatId, `💵 Прямо сейчас: 1 USD = ${rate} RUB`);
   }
 });
 
-// Команда /rate
+// /rate — мгновенный курс
 bot.onText(/\/rate/, async (msg) => {
   const chatId = msg.chat.id;
   const rate = await getDollarRate();
@@ -58,15 +69,16 @@ bot.onText(/\/rate/, async (msg) => {
   }
 });
 
-// Команда /stop для отписки
+// /stop — отписка
 bot.onText(/\/stop/, (msg) => {
   const chatId = msg.chat.id;
   subscribers = subscribers.filter((id) => id !== chatId);
+  saveSubscribers(subscribers);
   console.log('❌ Пользователь отписался:', chatId);
-  bot.sendMessage(chatId, '❌ Вы отписались от рассылки курса.');
+  bot.sendMessage(chatId, '❌ Вы отписались от рассылки.');
 });
 
-// 🔄 Рассылка каждые 60 секунд
+// Рассылка каждые 30 секунд
 cron.schedule('*/60 * * * * *', async () => {
   const time = new Date().toLocaleTimeString();
   console.log(`⏰ Cron сработал: ${time}, подписчиков: ${subscribers.length}`);

@@ -1,9 +1,11 @@
 const axios = require('axios');
 const QuickChart = require('quickchart-js');
+const { getUserCurrency } = require('../userPrefs');
 
-function handleChart(bot) {
+function handleChart(bot, prefs) {
   bot.onText(/\/chart/, async (msg) => {
     const chatId = msg.chat.id;
+    const currency = getUserCurrency(prefs, chatId); // выбранная валюта (по умолчанию USD)
 
     try {
       const today = new Date();
@@ -13,37 +15,50 @@ function handleChart(bot) {
       const startStr = start.toISOString().split('T')[0];
       const endStr = today.toISOString().split('T')[0];
 
-      const url = `https://api.exchangerate.host/timeseries?start_date=${startStr}&end_date=${endStr}&base=USD&symbols=RUB`;
+      const url = `https://api.exchangerate.host/timeseries?start_date=${startStr}&end_date=${endStr}&base=${currency}&symbols=RUB`;
       const res = await axios.get(url);
       const data = res.data?.rates;
 
-      if (!data) throw new Error('Нет данных');
+      if (!data || typeof data !== 'object') {
+        throw new Error('Нет данных');
+      }
 
-      const labels = Object.keys(data);
-      const values = labels.map(date => data[date].RUB?.toFixed(2) || null).filter(Boolean);
+      // сортируем даты по возрастанию
+      const labels = Object.keys(data).sort();
+      const values = labels
+        .map((date) => data[date]?.RUB ?? null)
+        .map((v) => (v == null ? null : Number(v).toFixed(2)))
+        .filter((v) => v !== null);
 
-      if (values.length === 0) throw new Error('Данных нет');
+      if (values.length === 0) {
+        throw new Error('Данных нет');
+      }
 
       const chart = new QuickChart();
-      chart.setConfig({
-        type: 'line',
-        data: {
-          labels,
-          datasets: [{
-            label: 'USD to RUB (7 дней)',
-            data: values,
-            fill: false,
-            borderWidth: 2
-          }]
-        }
-      }).setWidth(600).setHeight(300).setBackgroundColor('white');
+      chart
+        .setConfig({
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: `${currency} → RUB (7 дней)`,
+                data: values,
+                fill: false,
+                borderWidth: 2,
+              },
+            ],
+          },
+        })
+        .setWidth(600)
+        .setHeight(300)
+        .setBackgroundColor('white');
 
       const chartUrl = chart.getUrl();
 
-      bot.sendPhoto(chatId, chartUrl, {
-        caption: '📈 График курса USD → RUB за последние 7 дней'
+      await bot.sendPhoto(chatId, chartUrl, {
+        caption: `📈 График курса ${currency} → RUB за последние 7 дней`,
       });
-
     } catch (error) {
       console.error('Ошибка /chart:', error.message);
       bot.sendMessage(chatId, '❌ Не удалось построить график.');

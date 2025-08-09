@@ -1,12 +1,15 @@
-const { getDollarRate } = require('../../utils/getRate');
+const { getExchangeRate } = require('../../utils/getRate');
+const { getUserCurrency } = require('../userPrefs');
 
-function handleRate(bot) {
+function handleRate(bot, prefs) {
   bot.onText(/\/rate/, async (msg) => {
     const chatId = msg.chat.id;
-    const rate = await getDollarRate();
+
+    const currency = getUserCurrency(prefs, chatId);
+    const rate = await getExchangeRate(currency, 'RUB');
 
     if (rate) {
-      bot.sendMessage(chatId, `💵 1 USD = ${rate} RUB`);
+      bot.sendMessage(chatId, `💵 1 ${currency} = ${rate} RUB`);
     } else {
       bot.sendMessage(chatId, '❌ Не удалось получить курс.');
     }
